@@ -2,89 +2,104 @@ import cv2
 import pickle
 import numpy as np
 import urllib.request
+import http.client
+from flask import Flask, Response, render_template
 
 WIDTH, HEIGHT = 55, 135
+
 
 try:
     with open('CarParkPos', 'rb') as f:
         pos_list = pickle.load(f)
 except Exception as e:
-    print(f"[UYARI] 'CarParkPos' dosyası okunamadı veya bulunamadı: {e}")
+    print(f"[UYARI] 'CarParkPos' dosyası yüklenemedi: {e}")
     pos_list = []
 
-def check_parking_space(img_pro, img):
+app = Flask(__name__)
+
+URL = "http://192.168.1.137:81/stream"
+
+def check_parking_spaces(img_pro, img_frame):
     space_counter = 0
 
     for pos in pos_list:
         x, y = pos
-
-       
         img_crop = img_pro[y:y + HEIGHT, x:x + WIDTH]
-        
-       
         count = cv2.countNonZero(img_crop)
 
-        
         if count < 2000:
-            color = (0, 255, 0) # Yeşil (Boş)
-            thickness = 2
+            color = (0, 255, 0)
             space_counter += 1
         else:
-            color = (0, 0, 255) # Kırmızı (Dolu)
-            thickness = 2
+            color = (0, 0, 255)
 
-        # Park alanını çerçevele
-        cv2.rectangle(img, pos, (pos[0] + WIDTH, pos[1] + HEIGHT), color, thickness)
-        
-        cv2.putText(img, str(count), (x, y + HEIGHT - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+        cv2.rectangle(img_frame, pos, (pos[0] + WIDTH, pos[1] + HEIGHT), color, 2)
 
-    # genel durum bilgi kutusu
-    cv2.rectangle(img, (20, 20), (300, 70), (0, 0, 0), -1)
-    cv2.putText(img, f'BOS ALAN: {space_counter}/{len(pos_list)}', (30, 55),
+  
+    cv2.rectangle(img_frame, (20, 20), (320, 70), (0, 0, 0), -1)
+    cv2.putText(img_frame, f'BOS ALAN: {space_counter}/{len(pos_list)}', (30, 55),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-# ESP32 / Deneyap Cam canlı yayın adresi
-URL = "http://192.168.1.137:81/stream"
-
-cv2.namedWindow("ESP32 Cam - Smart Parking Stream")
-
-try:
-    stream = urllib.request.urlopen(URL)
-    bytes_data = b''
-
+def generate_frames():
     while True:
-        bytes_data += stream.read(1024)
-        a = bytes_data.find(b'\xff\xd8') 
-        b = bytes_data.find(b'\xff\xd9') 
+        try:
+            req = urllib.request.Request(URL, headers={'User-Agent': 'Mozilla/5.0'})
+            stream = urllib.request.urlopen(req, timeout=5)
+            bytes_data = b''
 
-        if a != -1 and b != -1:
-            jpg = bytes_data[a:b+2]
-            bytes_data = bytes_data[b+2:]
-            
-            if len(jpg) > 0:
-                img_np = np.frombuffer(jpg, dtype=np.uint8)
-                if img_np.size > 0:
-                    frame = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+            while True:
+                try:
+                    chunk = stream.read(4096)
+                    if not chunk:
+                        break
+                    bytes_data += chunk
 
-                    if frame is not None:
-                        # Görüntü İşleme Adımları
-                        img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        img_blur = cv2.GaussianBlur(img_gray, (3, 3), 1)
-                        img_threshold = cv2.adaptiveThreshold(img_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                             cv2.THRESH_BINARY_INV, 25, 16)
-                        img_median = cv2.medianBlur(img_threshold, 5)
-                        kernel = np.ones((3, 3), np.uint8)
-                        img_dilated = cv2.dilate(img_median, kernel, iterations=1)
+                    a = bytes_data.find(b'\xff\xd8')
+                    b = bytes_data.find(b'\xff\xd9')
 
-                        check_parking_space(img_dilated, frame)
+                    if a != -1 and b != -1:
+                        jpg = bytes_data[a:b+2]
+                        bytes_data = bytes_data[b+2:]
 
-                        cv2.imshow("ESP32 Cam - Smart Parking Stream", frame)
+                        if len(jpg) > 0:
+                            img_np = np.frombuffer(jpg, dtype=np.uint8)
+                            if img_np.size > 0:
+                                frame = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
 
-        # Çıkış yapmak için 'q'
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+                                if frame is not None:
+                                    # Adaptive Thresholding
+                                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                                    blur = cv2.GaussianBlur(gray, (3, 3), 1)
+                                    img_threshold = cv2.adaptiveThreshold(
+                                        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                        cv2.THRESH_BINARY_INV, 25, 16
+                                    )
+                                    img_median = cv2.medianBlur(img_threshold, 5)
+                                    kernel = np.ones((3, 3), np.uint8)
+                                    img_dilate = cv2.dilate(img_median, kernel, iterations=1)                        
+                                    check_parking_spaces(img_dilate, frame)
+                                    ret, buffer = cv2.imencode('.jpg', frame)
+                                    frame_bytes = buffer.tobytes()
 
-except Exception as e:
-    print(f"[HATA] Bağlantı veya analiz hatası: {e}")
+                                    yield (b'--frame\r\n'
+                                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-cv2.destroyAllWindows()
+                except (http.client.IncompleteRead, urllib.error.URLError):
+                    break
+
+        except Exception as e:
+            print(f"[YAYIN UYARISI] Kamera akışı yeniden bağlanıyor... ({e})")
+            cv2.waitKey(1000)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+if __name__ == '__main__':
+    print("\n[INFO] Flask Web Sunucusu Başlatılıyor...")
+    print("[INFO] Web Paneli Adresi: http://127.0.0.1:5000\n")
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
