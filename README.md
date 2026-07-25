@@ -1,19 +1,22 @@
-# 🚗 AI Smart Parking Occupancy System
+🅿️🅿🚘🚗Smart Parking Occupancy System
+A real-time parking space occupancy tracking system built with ESP32-CAM, OpenCV, and Flask.
 
-Real-time parking space occupancy tracking system using ESP32 Camera, OpenCV, YOLOv8, and Flask.
+![Smart Parking Dashboard](dashboard.png)
 
----
+About the Project
+This project processes a live MJPEG video stream from a Deneyap Kart (ESP32-CAM) to detect open and occupied parking spots in real time.
+While I initially considered deep learning models, I decided to go with OpenCV's Adaptive Thresholding technique to eliminate stream latency and keep frame rates high without needing a dedicated GPU. The occupancy metrics and processed stream are served live on a dark-mode web dashboard built with Flask.
 
-###  Overview
-This project processes a live MJPEG stream from a **Deneyap Kart (ESP32)** to analyze parking lot availability. Vehicle detection is powered by **YOLOv8**, and results are displayed on a real-time web dashboard.
-
-###  Tech Stack
-* **Hardware:** Deneyap Kart (ESP32 Camera Module)
-* **Backend & AI:** Python, OpenCV, Ultralytics YOLOv8
-* **Web Interface:** Flask, HTML/CSS, JavaScript
-
-###  Key Features
-* Live Wi-Fi video streaming
-* Real-time vehicle detection (`car`, `truck`, `bus`, `motorcycle`)
-* Interactive ROI editor for parking space configuration (`JSON`)
-* Real-time occupancy analytics & web dashboard
+Tech Stack
+Hardware: Deneyap Kart (ESP32 Camera Module)
+Backend & Computer Vision: Python, OpenCV (Adaptive Thresholding)
+Web Interface: Flask, HTML5, CSS3
+Storage / Config: Pickle (CarParkPos)
+Key Features
+Live Wireless Streaming: Direct MJPEG stream ingestion from the ESP32-CAM over Wi-Fi.
+Lightweight & High-FPS Detection: Accurate occupancy tracking using OpenCV pixel density analysis, designed to run smoothly on standard CPUs.
+Interactive Parking ROI Picker: A helper script (space_picker.py) that lets you click to define and save parking slot coordinates.
+Web Dashboard: A simple browser interface displaying real-time available spot counts and visual bounding boxes.
+Stream Fault Tolerance: Basic auto-reconnect handling to recover gracefully if the Wi-Fi camera stream briefly drops.
+Why OpenCV Instead of YOLO?
+During initial testing, running deep learning object detectors like YOLO directly on the stream caused noticeable lag and dropped frames. Since the camera angle for a parking lot is fixed, using adaptive thresholding allowed me to achieve sub-second latency and smooth performance without unnecessary computational overhead.
