@@ -1,4 +1,4 @@
-🅿️🅿🚘🚗Smart Parking Occupancy System
+# 🅿️🅿🚘🚗Smart Parking Occupancy System
 A real-time parking space occupancy tracking system built with ESP32-CAM, OpenCV, and Flask.
 
 ![Smart Parking Dashboard](dashboard.png)
